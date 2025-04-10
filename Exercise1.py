@@ -39,25 +39,29 @@ class CheetahWorld(World):
         state_space = self.env.observation_space.shape[0]  # https://gymnasium.farama.org/environments/mujoco/half_cheetah/#observation-space
         self.controller = MLP.NNController(state_space, action_space)
         self.dt = self.env.get_wrapper_attr('dt')
-        self.n_params = ...  # TODO
+        self.n_params = self.controller.n_params  # TODO
+        self.trial_time = 50  # seconds in simulation
 
     def geno2pheno(self, genotype):
         self.controller.geno2pheno(genotype)
         return self.controller
 
     def evaluate_individual(self, genotype):
-        trial_time = 50  # seconds in simulation
-        n_sim_steps = int(trial_time / self.dt)
+        n_sim_steps = int(self.trial_time / self.dt)
 
         self.geno2pheno(genotype)
 
         rewards_list = []
-        observations, info = self.env.reset(seed=42)
+        # observations, info = self.env.reset(seed=42)
+        observations, info = self.env.reset()
         for step in range(n_sim_steps):
             action = self.controller.get_action(observations)
             observations, rewards, terminated, truncated, info = self.env.step(action)
             rewards_list.append(rewards)
         return np.sum(rewards_list)
+    
+    def get_sim_steps(self):
+        return int(self.trial_time / self.dt)
 
 
 def run_EA(ea, world):
@@ -99,17 +103,19 @@ def main():
     n_parameters = world.n_params
 
     # TODO: improve the ES settings
-    CMAES_opts["min"] = -10
-    CMAES_opts["max"] = 10
+    CMAES_opts["min"] = -8
+    CMAES_opts["max"] = 8
     CMAES_opts["num_parents"] = 100
     CMAES_opts["num_generations"] = 100
-    CMAES_opts["mutation_sigma"] = 2.5
+    CMAES_opts["mutation_sigma"] = 2.0
 
     population_size = 50
 
     results_dir = os.path.join(ROOT_DIR, 'results', ENV_NAME, 'CMAES')
     ea = CMAES(population_size, n_parameters, CMAES_opts, results_dir)
 
+    cmaes_computation_budget = CMAES_opts["num_generations"] * population_size * world.get_sim_steps()
+    print("computation budget: ", cmaes_computation_budget)
     run_EA(ea, world)
 
     # %% Make video of best behaviour
@@ -120,10 +126,10 @@ def main():
 
     # %% Compare with PPO
     env = gym.make(ENV_NAME)
-    ppo = PPO("MlpPolicy", env, device=torch.device('cpu'))
+    ppo = PPO("MlpPolicy", env, device=torch.device('cpu'), verbose=1)
     trial_time = 50  # seconds in simulation
     n_sim_steps = int(trial_time / world.dt)
-    n_total_steps = ...  # TODO
+    n_total_steps = cmaes_computation_budget / 10 # TODO
     ppo.learn(total_timesteps=n_total_steps)
     ppo_controller = PPO_controller(ppo)
 
