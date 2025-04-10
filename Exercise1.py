@@ -129,7 +129,7 @@ def main():
     ppo = PPO("MlpPolicy", env, device=torch.device('cpu'), verbose=1)
     trial_time = 50  # seconds in simulation
     n_sim_steps = int(trial_time / world.dt)
-    n_total_steps = cmaes_computation_budget / 10 # TODO
+    n_total_steps = cmaes_computation_budget / 5 # TODO
     ppo.learn(total_timesteps=n_total_steps)
     ppo_controller = PPO_controller(ppo)
 
