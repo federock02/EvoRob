@@ -7,11 +7,34 @@ from gymnasium.envs.mujoco import MujocoEnv
 from gymnasium.spaces import Box
 from src.utils.geometry import quat2rot
 
+import math
+
 DEFAULT_CAMERA_CONFIG = {
     "distance": 4.5,
     "lookat": np.array([2.1, 0, 0]),
     "elevation": -25.0,
 }
+
+def quat2rot(quat):
+    w, x, y, z = quat
+    # roll (x-axis rotation)
+    sinr_cosp = 2 * (w * x + y * z)
+    cosr_cosp = 1 - 2 * (x * x + y * y)
+    roll = math.atan2(sinr_cosp, cosr_cosp)
+
+    # pitch (y-axis rotation)
+    sinp = 2 * (w * y - z * x)
+    if abs(sinp) >= 1:
+        pitch = math.copysign(math.pi / 2, sinp)
+    else:
+        pitch = math.asin(sinp)
+
+    # yaw (z-axis rotation)
+    siny_cosp = 2 * (w * z + x * y)
+    cos_y_cosp = 1 - 2 * (y * y + z * z)
+    yaw = math.atan2(siny_cosp, cos_y_cosp)
+
+    return roll, pitch, yaw
 
 
 class PassiveWalkerEnv(MujocoEnv, utils.EzPickle):
@@ -32,6 +55,8 @@ class PassiveWalkerEnv(MujocoEnv, utils.EzPickle):
         frame_skip: int = 5,
         default_camera_config: Dict[str, float] = DEFAULT_CAMERA_CONFIG,
         forward_reward_weight: float = 1,
+        downward_reward_weight: float = 0.5,
+        uprightness_weight: float = 0.5,
         main_body: Union[int, str] = 1,
         reset_noise_scale: float = 0.0,
         exclude_current_positions_from_observation: bool = False,
@@ -59,6 +84,8 @@ class PassiveWalkerEnv(MujocoEnv, utils.EzPickle):
             **kwargs,
         )
         self._forward_reward_weight = forward_reward_weight
+        self._downward_reward_weight = downward_reward_weight
+        self._uprightness_weight = uprightness_weight
 
         self._main_body = main_body
 
@@ -141,12 +168,19 @@ class PassiveWalkerEnv(MujocoEnv, utils.EzPickle):
         x_velocity, y_velocity = xy_velocity
 
         forward_reward = x_velocity * self._forward_reward_weight
+        downward_reward = -y_velocity *self._downward_reward_weight
+        quat = self.data.qpos[3:7]
+        euler = quat2rot(quat)
+        # print("Pitch: ",7 euler[1])
+        uprightness_penalty = self._uprightness_weight * np.square(euler[1])
 
         #TODO
-        reward = forward_reward
+        reward = forward_reward + downward_reward + uprightness_penalty
         observation = self._get_obs()
         info = {
             "reward_forward": forward_reward,
+            "reward_downward": downward_reward,
+            "reward_uprightness": uprightness_penalty,
             "x_position": self.data.qpos[0],
             "y_position": self.data.qpos[1],
             "distance_from_origin": np.linalg.norm(self.data.qpos[0:2], ord=2),
